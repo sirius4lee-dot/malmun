@@ -2,6 +2,9 @@
 
 말하기 중심 영어 연습 앱. `index.html`을 Edge나 Chrome으로 열면 바로 쓸 수 있다 (`말문 시작.bat`을 더블클릭하면 Edge로 열림).
 
+**휴대폰 주소: https://sirius4lee-dot.github.io/malmun/** (GitHub Pages, 저장소 sirius4lee-dot/malmun 공개, main 브랜치 루트).
+수정 후에는 이 폴더에서 commit → push 하면 1~2분 뒤 반영된다.
+
 ## 파일
 - `index.html` — 앱 전체 (화면, 채점, 기록)
 - `content.js` — 기본 스크립트 12개(30초 3, 1분 3, 2분 2, 3분 2, 5분 1, 10분 1), 한국어 해석, 핵심 표현, 단어 뜻풀이(GLOSSARY), 불규칙 동사 표
@@ -21,8 +24,11 @@
 
 ## 알아 둔 제약
 - 음성 인식은 Chrome·Edge에서 동작(인터넷 필요). Firefox는 안 됨.
-- claude.ai 아티팩트에서는 마이크가 막혀 있어서 아티팩트로 배포하지 않았다. 폰에서 쓰려면 HTTPS 호스팅(GitHub Pages 등)이 필요.
+- claude.ai 아티팩트에서는 마이크가 막혀 있어서 아티팩트로 배포하지 않고 GitHub Pages로 배포했다.
+- 안드로이드 Chrome은 continuous 인식에서 결과가 중복돼서 안드로이드에서만 continuous=false로 받고 자동 재시작한다.
+- PC와 폰의 기록은 따로 저장된다(브라우저별 localStorage). 옮기려면 백업 파일로.
 - 단어 영어 뜻은 dictionaryapi.dev(무료)에서 가져오고, 한국어 뜻은 content.js의 GLOSSARY에 있는 단어만 나온다.
 
 ## 변경 이력
+- 2026-10-21 v1.1: 휴대폰용 — GitHub Pages 배포, 홈 화면 앱(manifest, 아이콘), 안드로이드 인식 중복 방지
 - 2026-10-21 v1: 첫 버전 (연습 3단계, 단어장 + 말하기 퀴즈, 기록 탭 히트맵·단계표·최근 채점, 내 스크립트 추가, 백업)
