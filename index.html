@@ -485,7 +485,9 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
 const Listener = {
   active: false, rec: null, final: '', interim: '', err: '',
-  start({ onUpdate = () => {}, silenceMs = 0, maxMs = 0, noSpeechMs = 0 } = {}) {
+  // track: 녹음 중인 마이크 트랙. 지원하는 Chrome은 이 트랙을 같이 써서 녹음과 인식이 마이크를 다투지 않는다
+  start({ onUpdate = () => {}, silenceMs = 0, maxMs = 0, noSpeechMs = 0, track = null } = {}) {
+    this.track = track;
     if (!SR) return Promise.resolve({ text: '', secs: 0, err: 'unsupported' });
     this.final = ''; this.interim = ''; this.err = ''; this.active = true; this.heard = false;
     this.t0 = Date.now(); this.last = Date.now(); this.onUpdate = onUpdate;
@@ -523,7 +525,7 @@ const Listener = {
       if (this.active) { try { this.open(); } catch (e) { this.finish(); } } else this.finish();
     };
     this.rec = r;
-    try { r.start(); } catch (e) { this.err = 'start'; this.active = false; this.finish(); }
+    try { if (this.track) r.start(this.track); else r.start(); } catch (e) { this.err = 'start'; this.active = false; this.finish(); }
   },
   text() { return (this.final + ' ' + this.interim).replace(/\s+/g, ' ').trim(); },
   stop() {
@@ -785,7 +787,8 @@ async function drillSpeak() {
   const recording = await Recorder.start();
   drillState.starting = false;
   const words = line.split(/\s+/).length;
-  const pending = Listener.start({ onUpdate: t => { drillState.live = t; const el = $('#live'); if (el) el.textContent = t; }, silenceMs: 1600, maxMs: Math.max(9000, words * 1100), noSpeechMs: 8000 });
+  const track = recording && Recorder.stream ? Recorder.stream.getAudioTracks()[0] : null;
+  const pending = Listener.start({ onUpdate: t => { drillState.live = t; const el = $('#live'); if (el) el.textContent = t; }, silenceMs: 1600, maxMs: Math.max(9000, words * 1100), noSpeechMs: 8000, track });
   render(); $('#live').textContent = '듣고 있어요… 지금 말하세요';
   const r = await pending;
   const blob = recording ? await Recorder.stop() : null;
@@ -796,7 +799,14 @@ async function drillSpeak() {
     toast('이 기기는 녹음과 채점을 동시에 못 해서 녹음을 껐어요. 다시 눌러 주세요.'); drillState.auto = false; render(); return null;
   }
   if (r.err && !r.text) { toast(ERR_MSG[r.err] || '다시 시도해 주세요'); drillState.auto = false; render(); return null; }
-  if (recording && !r.text) toast('말이 인식되지 않았어요. 계속 그러면 아래 "내 목소리 녹음"을 꺼 보세요.');
+  // 녹음은 됐는데 인식이 두 번 연속 비면, 이 기기는 동시에 못 하는 것으로 보고 녹음을 끈다
+  if (recording && !r.text && blob) {
+    drillState.emptyWithRec = (drillState.emptyWithRec || 0) + 1;
+    if (drillState.emptyWithRec >= 2) {
+      S.settings.recordVoice = false; save(); drillState.emptyWithRec = 0; drillState.auto = false;
+      toast('이 휴대폰은 녹음과 채점을 동시에 못 해서 녹음을 껐어요. 이제 채점이 정상으로 돼요.');
+    } else toast('말이 인식되지 않았어요. 한 번 더 해 보세요.');
+  } else if (r.text) drillState.emptyWithRec = 0;
   const g = grade([line], r.text);
   const p = prog(sc.id); p.sent[i] = Math.max(p.sent[i] ?? 0, g.score);
   if (drillState.last && drillState.last.audio) URL.revokeObjectURL(drillState.last.audio);
