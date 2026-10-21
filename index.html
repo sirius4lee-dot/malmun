@@ -745,7 +745,7 @@ function step2HTML(sc) {
           : '같은 문장을 한 번 더 말해서 녹음하고, 원어민 발음과 비교해 들을 수 있어요. (이 기기는 채점과 녹음을 동시에 못 해서 따로 해요)'}</p>` : ''}</div>` : ''}
     </div>
     <div class="toolbar"><label class="chk"><input type="checkbox" id="auto" ${drillState.auto ? 'checked' : ''}> 자동 진행 (듣기 → 말하기 → 80점 이상이면 다음 문장)</label>
-      ${Recorder.ok && !IS_ANDROID ? `<label class="chk"><input type="checkbox" id="rec-voice" ${S.settings.recordVoice ? 'checked' : ''}> 채점하면서 동시에 녹음 (PC 등 지원 기기)</label>` : ''}
+      ${Recorder.ok ? `<label class="chk"><input type="checkbox" id="rec-voice" ${S.settings.recordVoice ? 'checked' : ''}> 채점하면서 동시에 녹음${IS_ANDROID ? ' (안드로이드는 안 될 수 있어요)' : ''}</label>` : ''}
       <label class="chk"><input type="checkbox" id="show-ko" ${S.settings.showKo ? 'checked' : ''}> 한국어 해석 보기</label>${rateSeg()}</div>
     <p class="small muted" style="margin:0">초록 = 정확, 노랑 = 비슷하게 들림, 빨강 = 빠졌거나 다르게 들림. 말을 멈추고 1.6초가 지나면 자동으로 채점해요. 스피커 소리가 마이크에 들어가지 않게 이어폰을 쓰면 더 정확해요.</p>
   </div>`;
@@ -755,7 +755,7 @@ const Recorder = {
   ok: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder),
   stream: null, mr: null, chunks: [],
   async start(force) {
-    if (!this.ok || (!force && (!S.settings.recordVoice || IS_ANDROID))) return false;
+    if (!this.ok || (!force && !S.settings.recordVoice)) return false;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       this.chunks = [];
@@ -1188,7 +1188,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'show-ko') { S.settings.showKo = t.checked; save(); if (!settingsOpen) render(); }
   if (t.id === 'blind') { V.blind = t.checked; $('#lines')?.classList.toggle('blind', t.checked); }
-  if (t.id === 'rec-voice') { S.settings.recordVoice = t.checked; save(); }
+  if (t.id === 'rec-voice') { S.settings.recordVoice = t.checked; drillState.emptyWithRec = 0; save(); toast(t.checked ? '동시 녹음을 켰어요. 따라 말하기를 눌러 보세요.' : '동시 녹음을 껐어요'); }
   if (t.id === 'auto') { drillState.auto = t.checked; if (t.checked && !Listener.busy) drillAuto(); }
   if (t.id === 'voice') { S.settings.voice = t.value; save(); }
   if (t.dataset.note) { S.words[t.dataset.note].note = t.value; save(); }
