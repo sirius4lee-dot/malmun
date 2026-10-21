@@ -445,21 +445,40 @@ const TTS = {
     const rank = v => (/natural/i.test(v.name) ? 4 : 0) + (/online/i.test(v.name) ? 2 : 0) + (/google/i.test(v.name) ? 1 : 0) + (/en-US/i.test(v.lang) ? 1 : 0);
     return [...this.voices].sort((a, b) => rank(b) - rank(a))[0] || null;
   },
-  speak(text, rate) {
+  // 결과는 재생 시간(ms). 성공 여부와 오류는 TTS.last에 남긴다 (휴대폰에서 바로 실패하면 문장이 건너뛰듯 넘어가므로)
+  last: { ok: true, err: '' },
+  speak(text, rate, noVoice) {
     return new Promise(res => {
-      if (!('speechSynthesis' in window)) return res(0);
+      if (!('speechSynthesis' in window)) { this.last = { ok: false, err: 'unsupported' }; return res(0); }
       const u = new SpeechSynthesisUtterance(text);
-      const v = this.pick(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
+      const v = noVoice ? null : this.pick(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
       u.rate = rate || S.settings.rate;
-      const t0 = performance.now(); let done = false;
-      const fin = () => { if (done) return; done = true; clearTimeout(guard); res(performance.now() - t0); };
-      u.onend = fin; u.onerror = fin;
-      const guard = setTimeout(fin, 2500 + text.length * 140 / (u.rate || 1));
-      this.cur = u; speechSynthesis.speak(u);
+      const t0 = performance.now(); let done = false, started = false;
+      const fin = err => {
+        if (done) return; done = true; clearTimeout(guard);
+        const ms = performance.now() - t0;
+        this.last = { ok: !err && (started || ms > 400), err: err || (started || ms > 400 ? '' : 'no-start') };
+        res(ms);
+      };
+      u.onstart = () => { started = true; };
+      u.onend = () => fin();
+      u.onerror = e => fin(e.error || 'error');
+      const guard = setTimeout(() => fin(started ? '' : 'timeout'), 2500 + text.length * 140 / (u.rate || 1));
+      this.cur = u;
+      // 안드로이드 Chrome은 cancel() 직후 speak()를 부르면 새 문장까지 취소되므로, 말하는 중일 때만 cancel
+      if (speechSynthesis.paused) speechSynthesis.resume();
+      speechSynthesis.speak(u);
     });
   },
-  stop() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  // 실패하면 목소리 지정 없이 한 번 더 시도
+  async say(text, rate) {
+    const ms = await this.speak(text, rate);
+    if (this.last.ok || this.last.err === 'interrupted' || this.last.err === 'canceled') return ms;
+    return this.speak(text, rate, true);
+  },
+  stop() { if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); }
 };
+const TTS_HELP = '휴대폰에서 영어 음성이 나오지 않았어요. ① 미디어 볼륨을 올리고 무음 모드를 꺼 주세요. ② 삼성 인터넷·카카오톡 안 브라우저 말고 Chrome(아이폰은 Safari)으로 열어 주세요. ③ 안드로이드는 설정 → "텍스트 음성 변환(TTS)"에서 Google 음성 엔진과 영어 음성 데이터를 설치해 주세요.';
 
 /* ───────── 음성 인식 ───────── */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -638,7 +657,7 @@ const rateSeg = () => seg('rate', [[0.7, '0.7×'], [0.85, '0.85×'], [0.95, '1×
 
 // 1단계: 듣고 따라하기
 function step1HTML(sc) {
-  return `<div class="toolbar">
+  return `<div class="banner" id="tts-err" hidden></div><div class="toolbar">
       <button class="btn primary" id="play-all">${play.playing ? I.pause + ' 멈춤' : I.play + ' 처음부터 재생'}</button>
       ${rateSeg()}
       <span class="small muted">반복</span>${seg('repeat', [[1, '1회'], [2, '2회'], [3, '3회']], S.settings.repeat)}
@@ -651,6 +670,11 @@ function step1HTML(sc) {
       <button class="play" data-from="${i}" aria-label="${i + 1}번 문장부터 재생">${I.play}</button>
       <div><div class="en">${wordsHTML(l[0], i)}</div>${S.settings.showKo && l[1] ? `<div class="kotr">${esc(l[1])}</div>` : ''}</div></div>`).join('')}</div>`;
 }
+function showTtsError() {
+  const box = $('#tts-err');
+  const msg = `${TTS_HELP} <span class="muted">(오류 코드: ${esc(TTS.last.err)} · 영어 목소리 ${TTS.voices.length}개)</span>`;
+  if (box) { box.innerHTML = msg; box.hidden = false; } else toast('음성이 재생되지 않았어요. 설정에서 목소리 들어 보기를 눌러 보세요.');
+}
 const play = { run: 0, playing: false, idx: -1, t0: 0 };
 async function playFrom(from) {
   stopPlay();
@@ -660,8 +684,9 @@ async function playFrom(from) {
     if (my !== play.run) return;
     play.idx = i; markLine(i);
     for (let r = 0; r < S.settings.repeat; r++) {
-      const dur = await TTS.speak(sc.lines[i][0], S.settings.rate);
+      const dur = await TTS.say(sc.lines[i][0], S.settings.rate);
       if (my !== play.run) return;
+      if (!TTS.last.ok) { finishPlay(); showTtsError(); return; }
       await sleep(S.settings.gap ? dur * 1.05 + 400 : 250);
       if (my !== play.run) return;
     }
@@ -690,7 +715,7 @@ function step2HTML(sc) {
   if (!list.includes(V.drill)) V.drill = list[0];
   const i = V.drill, p = prog(sc.id), l = sc.lines[i], last = drillState.last && drillState.last.i === i ? drillState.last : null;
   const best = p.sent[i];
-  return `<div class="drill">
+  return `<div class="drill"><div class="banner" id="tts-err" hidden></div>
     <div class="row" style="justify-content:space-between">
       <div class="dots" id="dots">${list.map(k => `<button data-go="${k}" class="${band(p.sent[k])} ${k === i ? 'cur' : ''}" title="${k + 1}번 문장${p.sent[k] != null ? ' · 최고 ' + p.sent[k] + '점' : ''}">${k + 1}</button>`).join('')}</div>
       ${V.drillOnly ? `<button class="btn small ghost" id="drill-all">전체 문장 보기</button>` : ''}
@@ -743,8 +768,9 @@ async function drillAuto() {
   while (drillState.auto && V.step === 2 && V.script === sc.id) {
     let tries = 0, score = 0;
     while (drillState.auto && tries < 3) {
-      await TTS.speak(sc.lines[V.drill][0], S.settings.rate);
+      await TTS.say(sc.lines[V.drill][0], S.settings.rate);
       if (!drillState.auto) return;
+      if (!TTS.last.ok) { drillState.auto = false; render(); showTtsError(); return; }
       await sleep(250);
       score = await drillSpeak(); tries++;
       if (score == null || !drillState.auto) return;
@@ -999,8 +1025,11 @@ document.addEventListener('click', async e => {
   if (t.closest('#play-all')) return play.playing ? stopPlay() : playFrom(0);
   const from = t.closest('[data-from]'); if (from) return playFrom(+from.dataset.from);
   // 2단계
-  if (t.closest('#d-listen')) return TTS.speak(byId(V.script).lines[V.drill][0], S.settings.rate);
-  if (t.closest('#d-slow')) return TTS.speak(byId(V.script).lines[V.drill][0], 0.65);
+  if (t.closest('#d-listen') || t.closest('#d-slow')) {
+    await TTS.say(byId(V.script).lines[V.drill][0], t.closest('#d-slow') ? 0.65 : S.settings.rate);
+    if (!TTS.last.ok) showTtsError();
+    return;
+  }
   if (t.closest('#d-speak')) { drillState.auto = false; return drillSpeak(); }
   if (t.closest('#d-next')) { drillState.auto = false; if (Listener.busy) Listener.stop(); return drillGo(1); }
   if (t.closest('#d-prev')) { drillState.auto = false; if (Listener.busy) Listener.stop(); return drillGo(-1); }
@@ -1025,7 +1054,12 @@ document.addEventListener('click', async e => {
   if (t.closest('#quiz-reveal')) { const w = S.words[V.quiz.keys[V.quiz.i]]; V.quiz.msg = `정답: <b style="font-family:var(--f-script)">${esc(w.word)}</b>`; TTS.speak(w.word, 0.85); return render(); }
   if (t.closest('#quiz-next')) { if (Listener.busy) Listener.stop(); V.quiz.i++; V.quiz.msg = ''; if (V.quiz.i >= V.quiz.keys.length) { toast(`퀴즈 끝! ${V.quiz.right}/${V.quiz.keys.length} 맞힘`); V.quiz = null; } return render(); }
   // 설정
-  if (t.closest('#voice-test')) return TTS.speak("Hi there! This is the voice you'll practice with.", S.settings.rate);
+  if (t.closest('#voice-test')) {
+    $('#mic-live').textContent = '재생 중…';
+    await TTS.say("Hi there! This is the voice you'll practice with.", S.settings.rate);
+    $('#mic-live').innerHTML = TTS.last.ok ? '소리가 들렸다면 정상이에요. 안 들렸다면 미디어 볼륨을 확인해 주세요.' : `${TTS_HELP} <span class="muted">(오류 코드: ${esc(TTS.last.err)} · 영어 목소리 ${TTS.voices.length}개)</span>`;
+    return;
+  }
   if (t.closest('#mic-test')) {
     if (Listener.busy) return Listener.stop();
     $('#mic-live').textContent = '듣고 있어요… 영어로 아무 말이나 해 보세요.';
