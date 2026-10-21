@@ -558,7 +558,7 @@ function setTab(t) {
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t));
   render(); window.scrollTo(0, 0);
 }
-function stopAll() { stopPlay(); TTS.stop(); if (Listener.busy) Listener.stop(); drillState.auto = false; if (mem.on) memStop(true); }
+function stopAll() { if (Recorder.aloneStop) Recorder.aloneStop(); if (myAudio) myAudio.pause(); stopPlay(); TTS.stop(); if (Listener.busy) Listener.stop(); drillState.auto = false; if (mem.on) memStop(true); }
 function render() {
   $('#wcount').textContent = Object.keys(S.words).length || '';
   const app = $('#app');
@@ -737,11 +737,15 @@ function step2HTML(sc) {
       <div class="live" id="live">${esc(drillState.live || '')}</div>
       ${last ? `<div class="result"><div class="row" style="align-items:baseline;gap:14px"><span class="score ${band(last.g.score)}">${last.g.score}</span><span class="muted small">${last.g.score >= 90 ? '아주 좋아요!' : last.g.score >= 80 ? '통과! 다음 문장으로 가도 돼요.' : last.g.score >= 60 ? '빨간 단어를 다시 들어 보고 한 번 더.' : '천천히 듣고 다시 해 봐요.'}</span></div>
         <div class="small muted" style="margin-top:6px">들린 말: <span style="font-family:var(--f-script)">${esc(last.text || '(인식된 말이 없어요)')}</span></div>
-        ${last.audio ? `<div class="row" style="margin-top:12px"><button class="btn" id="d-mine">${I.play} 내 목소리 듣기</button><button class="btn" id="d-compare">${I.play} 원어민 → 내 목소리 이어 듣기</button></div>
-        <p class="small muted" style="margin:8px 0 0">빨간 단어 부분을 원어민 발음과 비교해 들어 보세요. 녹음은 이 화면에서만 쓰고 저장하지 않아요.</p>` : S.settings.recordVoice ? '' : `<p class="small muted" style="margin:8px 0 0">내 목소리 녹음이 꺼져 있어요. 아래 "내 목소리 녹음"을 켜면 다시 들을 수 있어요.</p>`}</div>` : ''}
+        ${Recorder.ok ? `<div class="row" style="margin-top:12px">
+          ${last.audio ? `<button class="btn" id="d-mine">${I.play} 내 목소리 듣기</button><button class="btn" id="d-compare">${I.play} 원어민 → 내 목소리 이어 듣기</button>` : ''}
+          ${last.audio && !last.alone ? '' : `<button class="btn ${drillState.recAlone ? 'rec on' : ''}" id="d-rec">${drillState.recAlone ? I.stop + ' 녹음 멈춤' : I.mic + (last.audio ? ' 다시 녹음' : ' 녹음해서 들어 보기')}</button>`}</div>
+        <p class="small muted" style="margin:8px 0 0">${drillState.recAlone ? '녹음 중이에요. 방금처럼 같은 문장을 한 번 더 말하세요. 말을 멈추면 자동으로 끝나요.'
+          : last.audio ? (last.alone ? '따로 녹음한 내 목소리예요. 빨간 단어 부분을 원어민 발음과 비교해 들어 보세요.' : '채점된 그대로의 내 목소리예요. 빨간 단어 부분을 원어민 발음과 비교해 들어 보세요.') + ' 녹음은 저장하지 않아요.'
+          : '같은 문장을 한 번 더 말해서 녹음하고, 원어민 발음과 비교해 들을 수 있어요. (이 기기는 채점과 녹음을 동시에 못 해서 따로 해요)'}</p>` : ''}</div>` : ''}
     </div>
     <div class="toolbar"><label class="chk"><input type="checkbox" id="auto" ${drillState.auto ? 'checked' : ''}> 자동 진행 (듣기 → 말하기 → 80점 이상이면 다음 문장)</label>
-      ${Recorder.ok ? `<label class="chk"><input type="checkbox" id="rec-voice" ${S.settings.recordVoice ? 'checked' : ''}> 내 목소리 녹음 (채점 후 다시 듣기)</label>` : ''}
+      ${Recorder.ok && !IS_ANDROID ? `<label class="chk"><input type="checkbox" id="rec-voice" ${S.settings.recordVoice ? 'checked' : ''}> 채점하면서 동시에 녹음 (PC 등 지원 기기)</label>` : ''}
       <label class="chk"><input type="checkbox" id="show-ko" ${S.settings.showKo ? 'checked' : ''}> 한국어 해석 보기</label>${rateSeg()}</div>
     <p class="small muted" style="margin:0">초록 = 정확, 노랑 = 비슷하게 들림, 빨강 = 빠졌거나 다르게 들림. 말을 멈추고 1.6초가 지나면 자동으로 채점해요. 스피커 소리가 마이크에 들어가지 않게 이어폰을 쓰면 더 정확해요.</p>
   </div>`;
@@ -750,8 +754,8 @@ function step2HTML(sc) {
 const Recorder = {
   ok: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder),
   stream: null, mr: null, chunks: [],
-  async start() {
-    if (!this.ok || !S.settings.recordVoice) return false;
+  async start(force) {
+    if (!this.ok || (!force && (!S.settings.recordVoice || IS_ANDROID))) return false;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       this.chunks = [];
@@ -769,8 +773,52 @@ const Recorder = {
       try { mr.stop(); } catch (e) { this.cleanup(); res(null); }
     });
   },
-  cleanup() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); this.stream = null; this.mr = null; }
+  cleanup() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); this.stream = null; this.mr = null; },
+  // 채점 없이 녹음만: 소리 크기로 말이 끝났는지 판단해 자동으로 멈춘다
+  async recordAlone({ maxMs = 15000, silenceMs = 1500, noSpeechMs = 8000 } = {}) {
+    if (!(await this.start(true))) return null;
+    let ctx = null, an = null, buf = null;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      an = ctx.createAnalyser(); an.fftSize = 1024; buf = new Uint8Array(an.fftSize);
+      ctx.createMediaStreamSource(this.stream).connect(an);
+    } catch (e) { an = null; }
+    return new Promise(res => {
+      const t0 = Date.now(); let heard = false, lastLoud = t0, finished = false;
+      const done = async () => {
+        if (finished) return; finished = true;
+        clearInterval(timer); this.aloneStop = null;
+        if (ctx) ctx.close().catch(() => {});
+        res(await this.stop());
+      };
+      this.aloneStop = done;
+      const timer = setInterval(() => {
+        const now = Date.now();
+        if (an) {
+          an.getByteTimeDomainData(buf);
+          let peak = 0; for (let k = 0; k < buf.length; k++) peak = Math.max(peak, Math.abs(buf[k] - 128));
+          if (peak > 14) { heard = true; lastLoud = now; }
+        }
+        if ((an && heard && now - lastLoud > silenceMs) || now - t0 > maxMs || (an && !heard && now - t0 > noSpeechMs)) done();
+      }, 100);
+    });
+  }
 };
+async function drillRecordAlone() {
+  if (drillState.recAlone) { if (Recorder.aloneStop) Recorder.aloneStop(); return; }
+  const last = drillState.last; if (!last) return;
+  TTS.stop(); if (myAudio) myAudio.pause();
+  drillState.recAlone = true; render();
+  const words = byId(V.script).lines[last.i][0].split(/\s+/).length;
+  const blob = await Recorder.recordAlone({ maxMs: Math.max(9000, words * 1100) });
+  drillState.recAlone = false;
+  if (drillState.last !== last) return; // 그 사이 다른 문장으로 이동
+  if (!blob) { toast('녹음하지 못했어요. 마이크 권한을 확인해 주세요.'); render(); return; }
+  if (last.audio) URL.revokeObjectURL(last.audio);
+  last.audio = URL.createObjectURL(blob); last.alone = true;
+  render();
+  playMine();
+}
 let myAudio = null;
 function playMine() {
   const url = drillState.last && drillState.last.audio;
@@ -781,6 +829,7 @@ function playMine() {
 }
 async function drillSpeak() {
   if (Listener.busy || drillState.starting) { if (Listener.busy) Listener.stop(); return null; }
+  if (Recorder.aloneStop) await Recorder.aloneStop(); // 따로 녹음 중이면 끝내고 마이크를 넘긴다
   const sc = byId(V.script), i = V.drill, line = sc.lines[i][0];
   TTS.stop(); if (myAudio) myAudio.pause(); drillState.live = '';
   drillState.starting = true;
@@ -818,6 +867,7 @@ async function drillSpeak() {
 async function drillGo(d) {
   const list = drillIdxList(byId(V.script)); const k = list.indexOf(V.drill) + d;
   if (k < 0 || k >= list.length) return false;
+  if (Recorder.aloneStop) Recorder.aloneStop();
   V.drill = list[k]; drillState.last = null; render(); return true;
 }
 async function drillAuto() {
@@ -1087,12 +1137,13 @@ document.addEventListener('click', async e => {
     if (!TTS.last.ok) showTtsError();
     return;
   }
+  if (t.closest('#d-rec')) return drillRecordAlone();
   if (t.closest('#d-mine')) return playMine();
   if (t.closest('#d-compare')) { if (myAudio) myAudio.pause(); await TTS.say(byId(V.script).lines[V.drill][0], S.settings.rate); await sleep(400); return playMine(); }
   if (t.closest('#d-speak')) { drillState.auto = false; return drillSpeak(); }
   if (t.closest('#d-next')) { drillState.auto = false; if (Listener.busy) Listener.stop(); return drillGo(1); }
   if (t.closest('#d-prev')) { drillState.auto = false; if (Listener.busy) Listener.stop(); return drillGo(-1); }
-  const go = t.closest('[data-go]'); if (go) { drillState.auto = false; if (Listener.busy) Listener.stop(); V.drill = +go.dataset.go; drillState.last = null; return render(); }
+  const go = t.closest('[data-go]'); if (go) { drillState.auto = false; if (Recorder.aloneStop) Recorder.aloneStop(); if (Listener.busy) Listener.stop(); V.drill = +go.dataset.go; drillState.last = null; return render(); }
   if (t.closest('#drill-all')) { V.drillOnly = null; return render(); }
   // 3단계
   if (t.closest('#mem-start')) return memStart();
