@@ -321,6 +321,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const wordCount = sc => sc.lines.reduce((n, l) => n + l[0].split(/\s+/).length, 0);
 // 자연스러운 말하기 속도(분당 140단어) 기준 예상 시간
 const estTime = sc => { const s = Math.round(wordCount(sc) / 140 * 6) * 10; return '약 ' + (s < 60 ? s + '초' : Math.floor(s / 60) + '분' + (s % 60 ? ' ' + s % 60 + '초' : '')); };
+// 3단계 외워서 말하기 마스터 기준 점수
+const MASTER = 80;
 const band = s => s == null ? '' : s >= 90 ? 'good' : s >= 70 ? 'mid' : 'bad';
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 1800); }
 function fmtMin(secs) { const m = Math.round(secs / 60); return m < 60 ? m + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; }
@@ -575,7 +577,7 @@ function statusOf(sc) {
   const passed = Object.values(p.sent).filter(v => v >= 80).length;
   const memBest = p.mem.none ?? null;
   const anyMem = Math.max(-1, ...Object.values(p.mem));
-  return { listened: p.listened, drillPct: Math.round(passed / n * 100), memBest, anyMem: anyMem < 0 ? null : anyMem, mastered: memBest != null && memBest >= 90 };
+  return { listened: p.listened, drillPct: Math.round(passed / n * 100), memBest, anyMem: anyMem < 0 ? null : anyMem, mastered: memBest != null && memBest >= MASTER };
 }
 function todaySecs() { const k = dayKey(Date.now()); return S.log.filter(l => dayKey(l.t) === k).reduce((a, l) => a + l.secs, 0); }
 function streak() {
@@ -644,7 +646,7 @@ function practiceHTML() {
   const stepInfo = [
     [1, '듣고 따라하기', st.listened ? '완료' : '전체 듣기 1회'],
     [2, '문장별 말하기', `80점 넘은 문장 ${st.drillPct}%`],
-    [3, '외워서 말하기', st.memBest != null ? `최고 ${st.memBest}점` : '90점이면 마스터']
+    [3, '외워서 말하기', st.memBest != null ? `최고 ${st.memBest}점` : MASTER + '점이면 마스터']
   ];
   let h = banner() + `<div class="phead"><button class="iconbtn" id="back" aria-label="목록으로">${I.back}</button>
     <div style="min-width:0"><div class="label">${lv.label} · ${sc.lines.length}문장 · ${wordCount(sc)}단어</div><h1>${esc(sc.title)}</h1><div class="muted small">${esc(sc.ko || '')}</div></div></div>
@@ -901,7 +903,7 @@ function step3HTML(sc) {
     body = `<div class="panel"><div class="row" style="align-items:baseline;gap:16px;flex-wrap:wrap">
         <span class="score ${band(R.g.score)}">${R.g.score}점</span>
         <span class="muted">${fmtClock(R.secs * 1000)} 동안 ${R.spokenWords}단어 · 분당 ${R.wpm}단어${R.g.extra ? ` · 대본에 없는 말 ${R.g.extra}단어` : ''}</span></div>
-      <p style="margin:8px 0 0">${R.g.score >= 90 ? (hint === 'none' ? '마스터! 다음 길이에 도전해 보세요.' : '좋아요. 이제 힌트 없이 도전해 보세요.') : R.g.score >= 70 ? '거의 다 왔어요. 빨간 부분이 있는 문장만 다시 연습해요.' : '2단계에서 문장별로 조금 더 익히고 다시 도전해요.'}</p>
+      <p style="margin:8px 0 0">${R.g.score >= MASTER ? (hint === 'none' ? '마스터! 다음 길이에 도전해 보세요.' : '좋아요. 이제 힌트 없이 도전해 보세요.') : R.g.score >= 60 ? '거의 다 왔어요. 빨간 부분이 있는 문장만 다시 연습해요.' : '2단계에서 문장별로 조금 더 익히고 다시 도전해요.'}</p>
       <div class="row" style="margin-top:12px">${R.weak.length ? `<button class="btn primary" id="practice-weak">틀린 문장 ${R.weak.length}개 연습하기</button>` : ''}<button class="btn" id="mem-again">다시 도전</button></div>
       <div class="sentlist">${sc.lines.map((l, i) => `<div class="item"><span class="pill ${band(R.g.sentScores[i])}">${R.g.sentScores[i]}</span><div><div class="en" style="font-size:17px">${wordsHTML(l[0], i, R.g.disp[i])}</div></div></div>`).join('')}</div>
       <details style="margin-top:12px"><summary class="small muted" style="cursor:pointer">인식된 전체 말 보기</summary><p style="font-family:var(--f-script)">${esc(R.text || '(없음)')}</p></details></div>`;
@@ -913,7 +915,7 @@ function step3HTML(sc) {
   } else {
     body = `<div class="panel" style="display:grid;gap:14px">
       <div><div class="label">도움 방식</div><div style="margin-top:6px">${seg('hint', [['none', '아무것도 안 보기'], ['first', '첫 글자 힌트'], ['ko', '한국어만 보기'], ['read', '보고 읽기']], hint)}</div>
-      <p class="small muted" style="margin:8px 0 0">"아무것도 안 보기"에서 90점 이상이면 이 스크립트를 마스터해요. 한국어만 보고 영어로 말하는 연습은 실제 대화와 가장 비슷해요.</p></div>
+      <p class="small muted" style="margin:8px 0 0">"아무것도 안 보기"에서 ${MASTER}점 이상이면 이 스크립트를 마스터해요. 한국어만 보고 영어로 말하는 연습은 실제 대화와 가장 비슷해요.</p></div>
       ${memPromptHTML(sc, hint)}
       <div class="row"><button class="btn rec" id="mem-start">${I.mic} 시작하고 말하기</button><span class="muted small">예상 ${fmtClock(est * 1000)} · 끝나면 "다 말했어요"를 누르세요</span></div>
       ${Object.keys(p.mem).length ? `<div class="small muted">지난 최고 점수 · ${[['none', '안 보기'], ['first', '첫 글자'], ['ko', '한국어'], ['read', '읽기']].filter(([k]) => p.mem[k] != null).map(([k, t]) => `${t} ${p.mem[k]}점`).join(' · ')}</div>` : ''}</div>`;
@@ -940,7 +942,7 @@ async function memStart() {
   const spokenWords = r.text ? r.text.split(' ').length : 0;
   V.memResult = { id: sc.id, g, text: r.text, secs: r.secs, spokenWords, wpm: Math.round(spokenWords / Math.max(r.secs, 1) * 60), weak: g.sentScores.map((s, i) => [s, i]).filter(([s]) => s < 80).map(([, i]) => i) };
   logAct(sc.id, 'mem-' + hint, r.secs, g.score);
-  if (hint === 'none' && g.score >= 90) toast('마스터했어요!');
+  if (hint === 'none' && g.score >= MASTER) toast('마스터했어요!');
   render();
 }
 function memStop(cancel) { if (cancel) { mem.on = false; clearInterval(mem.timer); } Listener.stop(); }
@@ -1068,7 +1070,7 @@ function recordsHTML() {
     const list = all().filter(s => s.level === lv.k); const n = list.length || 1;
     const m = list.filter(s => statusOf(s).mastered).length, d = list.filter(s => !statusOf(s).mastered && statusOf(s).drillPct === 100).length;
     return `<div class="lrow"><b>${lv.label}</b><div class="track" title="마스터 ${m} · 따라말하기 완료 ${d} · 전체 ${list.length}"><i style="width:${m / n * 100}%;background:var(--good)"></i><i style="width:${d / n * 100}%;background:var(--mid)"></i></div><span class="small mono">${m}/${list.length}</span></div>`;
-  }).join('')}</div><div class="legend" style="gap:10px"><span><i style="background:var(--good)"></i> 마스터 (암기 90점+)</span><span><i style="background:var(--mid)"></i> 따라말하기 완료</span></div></div>`;
+  }).join('')}</div><div class="legend" style="gap:10px"><span><i style="background:var(--good)"></i> 마스터 (암기 ${MASTER}점+)</span><span><i style="background:var(--mid)"></i> 따라말하기 완료</span></div></div>`;
   const recent = S.log.filter(l => l.score != null && l.mode !== 'quiz').slice(-30).reverse();
   const modeName = { sent: '문장별 말하기', 'mem-none': '암기 (안 보기)', 'mem-first': '암기 (첫 글자)', 'mem-ko': '암기 (한국어)', 'mem-read': '보고 읽기' };
   h += `<div class="section panel"><h2 style="font:700 18px/1.2 var(--f-display)">최근 채점</h2>${recent.length ? `<div class="tbl-wrap"><table><thead><tr><th>날짜</th><th>스크립트</th><th>방식</th><th>점수</th></tr></thead><tbody>${recent.map(l => `<tr><td class="num">${dayKey(l.t).slice(5)} ${new Date(l.t).toTimeString().slice(0, 5)}</td><td>${esc(byId(l.id)?.title || '-')}</td><td>${modeName[l.mode] || l.mode}</td><td><span class="pill ${band(l.score)}">${l.score}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted" style="margin:0">아직 채점 기록이 없어요. 2단계나 3단계에서 말하면 여기에 쌓여요.</p>'}</div>`;
